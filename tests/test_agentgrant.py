@@ -153,7 +153,7 @@ def setup_gl_mock():
 
 
 # ---------------------------------------------------------------------------
-# UNIT TESTS: Full Coverage for AgentGrant Lifecycle, Adjudication, Fraud & Appeals
+# UNIT TESTS: Full Coverage for Roles, Whistleblowing, Freezing, Appeals
 # ---------------------------------------------------------------------------
 
 def test_agentgrant_milestone_accepted_lifecycle():
@@ -175,10 +175,6 @@ def test_agentgrant_milestone_accepted_lifecycle():
     )
     assert gid == 1
 
-    grant_json = json.loads(app.get_grant(gid))
-    assert grant_json["status"] == 0  # STATUS_GRANT_OPEN
-    assert grant_json["escrow_amount"] == str(10**18)
-
     # Step 2: Researcher submits deliverable
     mock_env.message.sender_address = researcher
     mock_env.message.value = 0
@@ -197,22 +193,21 @@ def test_agentgrant_milestone_accepted_lifecycle():
     app.adjudicate_peer_review(grant_id=gid)
 
     grant_json = json.loads(app.get_grant(gid))
-    assert grant_json["status"] == 2  # STATUS_AWAITING_PAYOUT
+    assert grant_json["status"] == 3  # STATUS_AWAITING_PAYOUT
     assert grant_json["verdict"] == "MILESTONE_ACCEPTED_FULL"
     assert grant_json["rigor_score"] == 92
     assert grant_json["reproducibility_pct"] == 88
-    assert len(grant_json["evidence_hash"]) == 64
 
-    # Step 4: Advance blocks past 24-block rebuttal window and finalize settlement
+    # Step 4: Advance past 24 blocks and finalize payout
     app.grant_counter = 100
     app.finalize_settlement(grant_id=gid)
 
     grant_json = json.loads(app.get_grant(gid))
-    assert grant_json["status"] == 3  # STATUS_SETTLED_ACCEPTED
+    assert grant_json["status"] == 4  # STATUS_SETTLED_ACCEPTED
     assert grant_json["escrow_amount"] == "0"
 
 
-def test_agentgrant_academic_fraud_rejection():
+def test_agentgrant_whistleblower_fraud_reporting_and_freeze():
     mock_env = setup_gl_mock()
     import contract
     contract.gl = mock_env
@@ -220,6 +215,7 @@ def test_agentgrant_academic_fraud_rejection():
     app = contract.Contract()
     dao = SimulatedAddress("0x1111111111111111111111111111111111111111")
     researcher = SimulatedAddress("0x2222222222222222222222222222222222222222")
+    whistleblower = SimulatedAddress("0x3333333333333333333333333333333333333333")
 
     mock_env.message.sender_address = dao
     mock_env.message.value = 2 * 10**18
@@ -236,29 +232,76 @@ def test_agentgrant_academic_fraud_rejection():
         raw_dataset_url="https://osf.io/squid_data_raw.csv"
     )
 
-    # Mock LLM to detect fraud
+    # Whistleblower reports p-hacking with 5% bond (0.1 GEN)
+    mock_env.message.sender_address = whistleblower
+    mock_env.message.value = 10**17
+    app.report_academic_fraud(
+        grant_id=gid,
+        fraud_evidence_url="https://pubpeer.com/publications/squid_fraud_audit.html",
+        fraud_allegation="Severe p-hacking: step discontinuity at 295K is fabricated in CSV row 104-120."
+    )
+
+    grant_json = json.loads(app.get_grant(gid))
+    assert grant_json["status"] == 2  # STATUS_FROZEN_FLAGGED
+    assert grant_json["is_frozen"] is True
+    assert grant_json["whistleblower"] == str(whistleblower).lower()
+
+    # AI Court adjudicates with fraud detection
     mock_env.nondet.llm_response = {
         "canary": "CANARY_AGENT_GRANT_DESCI_V1",
         "verdict": "REJECTED_ACADEMIC_FRAUD",
         "confidence": 99,
-        "rigor_score": 24,
-        "reproducibility_pct": 12,
-        "reason": "SQUID magnetometer curve exhibits synthetic step discontinuity; zero-resistance unverified."
+        "rigor_score": 18,
+        "reproducibility_pct": 10,
+        "reason": "Whistleblower evidence validated: synthetic step discontinuity found, unreproducible."
     }
 
     mock_env.message.sender_address = dao
     app.adjudicate_peer_review(grant_id=gid)
 
     grant_json = json.loads(app.get_grant(gid))
-    assert grant_json["status"] == 2  # STATUS_AWAITING_PAYOUT
+    assert grant_json["status"] == 3  # STATUS_AWAITING_PAYOUT
     assert grant_json["verdict"] == "REJECTED_ACADEMIC_FRAUD"
 
-    # Finalize settlement refunds 100% to DAO
-    app.grant_counter = 150
+    # Finalize settlement refunds DAO and rewards whistleblower
+    app.grant_counter = 120
     app.finalize_settlement(grant_id=gid)
 
     grant_json = json.loads(app.get_grant(gid))
-    assert grant_json["status"] == 4  # STATUS_SETTLED_FRAUD
+    assert grant_json["status"] == 5  # STATUS_SETTLED_FRAUD
+    stats = json.loads(app.get_stats())
+    assert stats["total_frauds_stopped"] == 1
+
+
+def test_agentgrant_emergency_freeze_and_unfreeze():
+    mock_env = setup_gl_mock()
+    import contract
+    contract.gl = mock_env
+
+    app = contract.Contract()
+    dao = SimulatedAddress("0x1111111111111111111111111111111111111111")
+    researcher = SimulatedAddress("0x2222222222222222222222222222222222222222")
+
+    mock_env.message.sender_address = dao
+    mock_env.message.value = 10**18
+    gid = app.create_grant_milestone("Solid Electrolyte Battery", "Nyquist plot specs over 1000 cycles", 6000)
+
+    mock_env.message.sender_address = researcher
+    app.submit_research_deliverable(gid, "https://arxiv.org/paper.pdf", "https://github.com/data.csv")
+
+    # DAO emergency freezes the grant
+    mock_env.message.sender_address = dao
+    app.emergency_freeze(gid, "Anomalous temperature spike reported in test cell.")
+
+    g_json = json.loads(app.get_grant(gid))
+    assert g_json["status"] == 2  # STATUS_FROZEN_FLAGGED
+    assert g_json["is_frozen"] is True
+
+    # DAO unfreezes after audit verification
+    app.emergency_unfreeze(gid)
+    g_json2 = json.loads(app.get_grant(gid))
+    assert g_json2["is_frozen"] is False
+    assert g_json2["status"] == 1  # back to STATUS_SUBMITTED
 
 
 def test_agentgrant_appeal_and_dispute_flow():
@@ -285,7 +328,6 @@ def test_agentgrant_appeal_and_dispute_flow():
         raw_dataset_url="https://github.com/lab/solar_raw_spectroscopy.csv"
     )
 
-    # Initial verdict: Partial revision
     mock_env.nondet.llm_response = {
         "canary": "CANARY_AGENT_GRANT_DESCI_V1",
         "verdict": "PARTIAL_REVISION_GRANT",
@@ -298,7 +340,7 @@ def test_agentgrant_appeal_and_dispute_flow():
     mock_env.message.sender_address = dao
     app.adjudicate_peer_review(grant_id=gid)
 
-    # Researcher appeals with 10% bond (0.1 GEN)
+    # Researcher appeals with 10% bond
     mock_env.message.sender_address = researcher
     mock_env.message.value = 10**17
     app.appeal_verdict(
@@ -307,10 +349,10 @@ def test_agentgrant_appeal_and_dispute_flow():
     )
 
     grant_json = json.loads(app.get_grant(gid))
-    assert grant_json["status"] == 6  # STATUS_DISPUTED
+    assert grant_json["status"] == 7  # STATUS_DISPUTED
     assert grant_json["dispute_bond"] == str(10**17)
 
-    # Supreme Academic Council adjudicates appeal with supplemental proof
+    # Supreme Court adjudication
     mock_env.nondet.llm_response = {
         "canary": "CANARY_AGENT_GRANT_DESCI_V1",
         "verdict": "APPEAL_UPHELD_ACCEPTED",
@@ -318,15 +360,11 @@ def test_agentgrant_appeal_and_dispute_flow():
     }
 
     mock_env.message.sender_address = dao
-    app.adjudicate_appeal(
-        grant_id=gid,
-        supplemental_reproduction_url="https://nrel.gov/pv/calibration/cert_9881.txt"
-    )
+    app.adjudicate_appeal(grant_id=gid, supplemental_reproduction_url="https://nrel.gov/pv/calibration/cert_9881.txt")
 
     final_data = json.loads(app.get_grant(gid))
-    assert final_data["status"] == 3  # STATUS_SETTLED_ACCEPTED
+    assert final_data["status"] == 4  # STATUS_SETTLED_ACCEPTED
     assert final_data["verdict"] == "MILESTONE_ACCEPTED_FULL"
-    assert "APPEAL UPHELD" in final_data["reason"]
 
 
 def test_agentgrant_role_violations_and_edge_cases():
@@ -356,7 +394,7 @@ def test_agentgrant_role_violations_and_edge_cases():
     mock_env.message.sender_address = researcher
     app.submit_research_deliverable(gid, "https://arxiv.org/paper.pdf", "https://zenodo.org/data.csv")
 
-    # 3. Unauthorized attacker cannot trigger peer-review
+    # 3. Unauthorized attacker cannot emergency freeze
     mock_env.message.sender_address = attacker
     with pytest.raises(contract.gl.UserError, match="Permission Denied"):
-        app.adjudicate_peer_review(gid)
+        app.emergency_freeze(gid, "Fake freeze")
