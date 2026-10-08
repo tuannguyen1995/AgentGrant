@@ -261,7 +261,7 @@ export const GrantCard: React.FC<GrantCardProps> = ({
               className="flex items-center justify-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs shadow-md transition"
             >
               <BrainCircuit className="w-3.5 h-3.5" />
-              <span>AI Phán Quyết</span>
+              <span>AI Adjudicate</span>
             </button>
 
             <button
@@ -269,7 +269,7 @@ export const GrantCard: React.FC<GrantCardProps> = ({
               className="flex items-center justify-center space-x-1.5 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold rounded-xl text-xs transition"
             >
               <ShieldAlert className="w-3.5 h-3.5" />
-              <span>Tố Cáo Gian Lận</span>
+              <span>Report Fraud</span>
             </button>
           </div>
         )}
@@ -282,7 +282,7 @@ export const GrantCard: React.FC<GrantCardProps> = ({
                 className="flex items-center justify-center space-x-1 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-xl text-xs font-medium transition"
               >
                 <FileText className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Hồ Sơ Mật Mã</span>
+                <span>Audit Dossier</span>
               </button>
 
               <button
@@ -290,7 +290,7 @@ export const GrantCard: React.FC<GrantCardProps> = ({
                 className="flex items-center justify-center space-x-1 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-medium transition"
               >
                 <Scale className="w-3.5 h-3.5 text-amber-400" />
-                <span>Kháng Cáo (10% Bond)</span>
+                <span>Appeal (10% Bond)</span>
               </button>
             </div>
 
@@ -300,7 +300,7 @@ export const GrantCard: React.FC<GrantCardProps> = ({
               className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-md transition"
             >
               <CheckCircle className="w-3.5 h-3.5" />
-              <span>Giải Ngân & Tất Toán Payout</span>
+              <span>Finalize Settlement Payout</span>
             </button>
           </div>
         )}
@@ -311,7 +311,7 @@ export const GrantCard: React.FC<GrantCardProps> = ({
             className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs shadow-md transition"
           >
             <Scale className="w-3.5 h-3.5" />
-            <span>Tòa Án Tối Cao Phúc Thẩm</span>
+            <span>Adjudicate Supreme Appeal</span>
           </button>
         )}
 
@@ -322,10 +322,10 @@ export const GrantCard: React.FC<GrantCardProps> = ({
               className="flex items-center space-x-1 text-xs text-slate-400 hover:text-cyan-300 transition"
             >
               <FileText className="w-3 h-3" />
-              <span>Xem Hồ Sơ Thanh Tra</span>
+              <span>View Audit Dossier</span>
             </button>
             <span className="text-[11px] font-mono font-bold text-slate-400">
-              {grant.status === 4 ? "Đã Giải Ngân 100%" : grant.status === 5 ? "Đã Hoàn Quỹ Fraud" : grant.status === 6 ? "Đã Giải Ngân 50/50" : "Đã Hủy"}
+              {grant.status === 4 ? "100% Disbursed" : grant.status === 5 ? "Refunded to DAO" : grant.status === 6 ? "50/50 Split Disbursed" : "Cancelled"}
             </span>
           </div>
         )}
@@ -338,7 +338,7 @@ export const GrantCard: React.FC<GrantCardProps> = ({
               className="flex items-center space-x-1 text-emerald-400 hover:text-emerald-300 transition"
             >
               <Unlock className="w-3.5 h-3.5" />
-              <span>Mở Phong Tỏa</span>
+              <span>Unfreeze Quarantine</span>
             </button>
           ) : (
             <button
@@ -346,7 +346,7 @@ export const GrantCard: React.FC<GrantCardProps> = ({
               className="flex items-center space-x-1 text-red-400 hover:text-red-300 transition"
             >
               <Snowflake className="w-3.5 h-3.5" />
-              <span>Phong Tỏa Khẩn Cấp</span>
+              <span>Emergency Freeze</span>
             </button>
           )}
 
