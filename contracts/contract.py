@@ -113,10 +113,6 @@ class Contract(gl.Contract):
         methodology_spec: str,
         duration_blocks: int
     ) -> u64:
-        """
-        Role: Grantor DAO / BioDAO.
-        Locks milestone GEN escrow for a scientific research milestone with open science invariants.
-        """
         self._ensure_owner()
         escrow = bigint(gl.message.value)
         if escrow <= bigint(0):
@@ -181,10 +177,6 @@ class Contract(gl.Contract):
         preprint_url: str,
         raw_dataset_url: str
     ) -> None:
-        """
-        Role: Principal Investigator / Lab Lead.
-        Claims the grant and uploads preprint paper and raw empirical dataset links.
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -220,12 +212,6 @@ class Contract(gl.Contract):
         fraud_evidence_url: str,
         fraud_allegation: str
     ) -> None:
-        """
-        Role: Whistleblower / Academic Auditor (Permissionless).
-        Flags p-hacking, fabricated variance, missing control groups, or plagiarism.
-        Requires staking a 5% integrity bond to prevent malicious griefing.
-        Immediately freezes the milestone grant into quarantine.
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -243,7 +229,6 @@ class Contract(gl.Contract):
         if len(clean_msg) < 10:
             raise gl.UserError("Detailed fraud allegation (>=10 chars) required.")
 
-        # Minimum 5% bond
         min_bond = (g.escrow_amount * bigint(5)) // bigint(100)
         if min_bond == bigint(0):
             min_bond = bigint(1)
@@ -267,10 +252,6 @@ class Contract(gl.Contract):
 
     @gl.public.write
     def emergency_freeze(self, grant_id: u64, freeze_reason: str) -> None:
-        """
-        Role: Grantor DAO or Contract Owner.
-        Instantly freezes milestone payouts during active integrity investigation.
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -293,10 +274,6 @@ class Contract(gl.Contract):
 
     @gl.public.write
     def emergency_unfreeze(self, grant_id: u64) -> None:
-        """
-        Role: Grantor DAO or Contract Owner.
-        Lifts freeze quarantine if fraud allegation was reviewed and dismissed.
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -316,14 +293,10 @@ class Contract(gl.Contract):
         g.status = STATUS_SUBMITTED if g.verdict == "PENDING" else STATUS_AWAITING_PAYOUT
         g.reason = f"Quarantine lifted by {sender_str[:8]}. Ready for peer-review adjudication."
 
-    # ── Role 4: AI Peer-Review & Forensic Court (GenLayer Consensus) ──
+    # ── Role 4: AI Peer-Review & Forensic Court ───────────────────────
 
     @gl.public.write
     def adjudicate_peer_review(self, grant_id: u64) -> None:
-        """
-        Role: AI Peer-Review Council (GenLayer Validators).
-        Evaluates preprint rigor, empirical reproducibility, and cross-checks whistleblower fraud evidence.
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -509,10 +482,6 @@ Respond ONLY with valid JSON without markdown fences:
 
     @gl.public.write.payable
     def appeal_verdict(self, grant_id: u64, dispute_reason: str) -> None:
-        """
-        Role: Stakeholder (Grantor DAO or Researcher).
-        Files a rebuttal appeal within 24 blocks cooling window with 10% stake bond.
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -551,10 +520,6 @@ Respond ONLY with valid JSON without markdown fences:
 
     @gl.public.write
     def adjudicate_appeal(self, grant_id: u64, supplemental_reproduction_url: str) -> None:
-        """
-        Role: Supreme Academic Council (Appellate AI Magistrate).
-        Reviews third-party independent lab replication audit logs.
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -650,6 +615,7 @@ Respond ONLY with valid JSON:
         self.total_grants_settled = self.total_grants_settled + u32(1)
 
         counterparty = g.researcher if _addr_str(appellant) == _addr_str(g.grantor_dao) else g.grantor_dao
+        has_wb = (_addr_str(g.whistleblower) != ZERO_ADDRESS) and (wb_bond_val > bigint(0))
 
         if app_verdict == "APPEAL_UPHELD_ACCEPTED":
             g.status = STATUS_SETTLED_ACCEPTED
@@ -657,8 +623,7 @@ Respond ONLY with valid JSON:
             g.reason = f"[APPEAL UPHELD] {app_reason}"
             _pay_native(g.researcher, escrow_val)
             _pay_native(appellant, dispute_bond_val)
-            # If whistleblower filed false report, their bond is awarded to researcher
-            if _addr_str(g.whistleblower) != ZERO_ADDRESS:
+            if has_wb:
                 _pay_native(g.researcher, wb_bond_val)
 
         elif app_verdict == "APPEAL_UPHELD_PARTIAL":
@@ -670,7 +635,7 @@ Respond ONLY with valid JSON:
             _pay_native(g.researcher, payout)
             _pay_native(g.grantor_dao, refund)
             _pay_native(counterparty, dispute_bond_val)
-            if _addr_str(g.whistleblower) != ZERO_ADDRESS:
+            if has_wb:
                 _pay_native(g.whistleblower, wb_bond_val)
 
         else:
@@ -680,18 +645,13 @@ Respond ONLY with valid JSON:
             self.total_frauds_stopped = self.total_frauds_stopped + u32(1)
             _pay_native(g.grantor_dao, escrow_val)
             _pay_native(counterparty, dispute_bond_val)
-            # Whistleblower verified: reward their bond + bounty
-            if _addr_str(g.whistleblower) != ZERO_ADDRESS:
+            if has_wb:
                 _pay_native(g.whistleblower, wb_bond_val)
 
     # ── Final Disbursement & Settlement Execution ─────────────────────
 
     @gl.public.write
     def finalize_settlement(self, grant_id: u64) -> None:
-        """
-        Role: Stakeholder (Grantor, Researcher, Whistleblower, or Owner).
-        Executes undisputed payout strictly after 24 blocks cooling window.
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -726,13 +686,12 @@ Respond ONLY with valid JSON:
         self.total_grant_locked = self.total_grant_locked - total_settling
         self.total_grants_settled = self.total_grants_settled + u32(1)
 
-        has_whistleblower = _addr_str(g.whistleblower) != ZERO_ADDRESS
+        has_wb = (_addr_str(g.whistleblower) != ZERO_ADDRESS) and (wb_bond_val > bigint(0))
 
         if g.verdict == "MILESTONE_ACCEPTED_FULL":
             g.status = STATUS_SETTLED_ACCEPTED
             _pay_native(g.researcher, escrow_val)
-            # If whistleblower filed false alarm, bond compensated to researcher
-            if has_whistleblower:
+            if has_wb:
                 _pay_native(g.researcher, wb_bond_val)
 
         elif g.verdict == "PARTIAL_REVISION_GRANT":
@@ -741,25 +700,20 @@ Respond ONLY with valid JSON:
             refund = escrow_val - payout
             _pay_native(g.researcher, payout)
             _pay_native(g.grantor_dao, refund)
-            if has_whistleblower:
+            if has_wb:
                 _pay_native(g.whistleblower, wb_bond_val)
 
         else:
-            # Academic Fraud confirmed: 100% refund to DAO, whistleblower rewarded!
             g.status = STATUS_SETTLED_FRAUD
             self.total_frauds_stopped = self.total_frauds_stopped + u32(1)
             _pay_native(g.grantor_dao, escrow_val)
-            if has_whistleblower:
+            if has_wb:
                 _pay_native(g.whistleblower, wb_bond_val)
 
     # ── Emergency Reclaim / Cancellation ──────────────────────────────
 
     @gl.public.write
     def cancel_or_reclaim(self, grant_id: u64) -> None:
-        """
-        Role: Grantor DAO.
-        Reclaims funds if grant expired unclaimed or researcher work stalled (>150 blocks).
-        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -792,7 +746,7 @@ Respond ONLY with valid JSON:
         self.total_grant_locked = self.total_grant_locked - (escrow_val + wb_bond_val)
 
         _pay_native(g.grantor_dao, escrow_val)
-        if _addr_str(g.whistleblower) != ZERO_ADDRESS:
+        if (_addr_str(g.whistleblower) != ZERO_ADDRESS) and (wb_bond_val > bigint(0)):
             _pay_native(g.whistleblower, wb_bond_val)
 
     # ── Read-only Views ───────────────────────────────────────────────

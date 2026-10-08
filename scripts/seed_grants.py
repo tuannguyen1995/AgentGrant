@@ -4,7 +4,8 @@ import json
 from genlayer_py import create_client, studionet, create_account
 from genlayer_py.types.transactions import TransactionStatus
 
-CONTRACT_ADDRESS = "0x9139B372F4622080C0Dd33e9D8e3414C4CAda525"
+with open("scripts/deployed_contract.json", "r") as f:
+    CONTRACT_ADDRESS = json.load(f)["contractAddress"]
 
 def seed_sample_grants():
     print(f"[*] Seeding diverse real on-chain grants into {CONTRACT_ADDRESS}...", flush=True)
