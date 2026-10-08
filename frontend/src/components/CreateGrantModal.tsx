@@ -90,7 +90,7 @@ export const CreateGrantModal: React.FC<CreateGrantModalProps> = ({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. CRISPR Off-Target Epigenetic Repair In Vivo"
-              className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-sans"
+              className="w-full px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-sans font-medium"
             />
           </div>
 
@@ -104,9 +104,9 @@ export const CreateGrantModal: React.FC<CreateGrantModalProps> = ({
               value={spec}
               onChange={(e) => setSpec(e.target.value)}
               placeholder="e.g. Double-blind NGS sequencing with raw FASTQ counts; statistical significance p < 0.01; negative controls included."
-              className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-sans"
+              className="w-full px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-sans font-medium"
             />
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="text-[11px] text-slate-500 mt-1">
               The AI Peer-Review Council will verify preprint manuscripts and raw datasets against these criteria.
             </p>
           </div>
@@ -125,7 +125,7 @@ export const CreateGrantModal: React.FC<CreateGrantModalProps> = ({
                   value={escrow}
                   onChange={(e) => setEscrow(e.target.value)}
                   placeholder="1.0"
-                  className="w-full pl-8 pr-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-mono"
+                  className="w-full pl-8 pr-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-mono font-medium"
                 />
                 <DollarSign className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
               </div>
@@ -142,7 +142,7 @@ export const CreateGrantModal: React.FC<CreateGrantModalProps> = ({
                   value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   placeholder="6000"
-                  className="w-full pl-8 pr-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-mono"
+                  className="w-full pl-8 pr-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-mono font-medium"
                 />
                 <Clock className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
               </div>

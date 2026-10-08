@@ -139,7 +139,7 @@ export const AppealModal: React.FC<AppealModalProps> = ({
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Detail the independent laboratory replications, calibration standard certificates, or counter-evidence addressing the prior AI peer-review critique..."
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-600 font-sans"
+                  className="w-full px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-600 font-sans font-medium"
                 />
               </div>
             </>
@@ -162,7 +162,7 @@ export const AppealModal: React.FC<AppealModalProps> = ({
                   value={suppUrl}
                   onChange={(e) => setSuppUrl(e.target.value)}
                   placeholder="https://nrel.gov/pv/calibration/cert_9881.txt"
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-600 font-mono"
+                  className="w-full px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-600 font-mono font-medium"
                 />
               </div>
             </>

@@ -108,11 +108,11 @@ export const SubmitDeliverableModal: React.FC<SubmitDeliverableModalProps> = ({
                 value={paperUrl}
                 onChange={(e) => setPaperUrl(e.target.value)}
                 placeholder="https://biorxiv.org/content/early/2026/crispr_repair_manuscript.txt"
-                className="w-full pl-8 pr-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-mono"
+                className="w-full pl-9 pr-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-mono font-medium"
               />
               <FileText className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">Must be publicly crawlable by GenLayer validators on-chain.</p>
+            <p className="text-[11px] text-slate-500 mt-1">Must be publicly crawlable by GenLayer validators on-chain.</p>
           </div>
 
           <div>
@@ -126,7 +126,7 @@ export const SubmitDeliverableModal: React.FC<SubmitDeliverableModalProps> = ({
                 value={dataUrl}
                 onChange={(e) => setDataUrl(e.target.value)}
                 placeholder="https://zenodo.org/record/8921102/raw_sequencing_fastq.csv"
-                className="w-full pl-8 pr-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-mono"
+                className="w-full pl-9 pr-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 font-mono font-medium"
               />
               <Database className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
             </div>
