@@ -3,6 +3,8 @@
 > **Track:** DeSci (Decentralized Science) / Public Goods Funding / Academic Integrity  
 > **Target Network:** GenLayer StudioNet (Chain ID: `61999` / `0xF22F`, RPC: `https://studio.genlayer.com/api`)  
 > **Deployed Contract Address:** [`0x2A0D207835eb5e82a7CCD75F4dAf3611fd526572`](https://genlayer-explorer.vercel.app/address/0x2A0D207835eb5e82a7CCD75F4dAf3611fd526572)  
+> **Live Production dApp:** [https://agentgrant-nine.vercel.app](https://agentgrant-nine.vercel.app)  
+> **GitHub Repository:** [https://github.com/tuannguyen1995/AgentGrant](https://github.com/tuannguyen1995/AgentGrant)  
 
 ---
 
