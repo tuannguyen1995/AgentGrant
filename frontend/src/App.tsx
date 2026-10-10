@@ -328,7 +328,7 @@ export function App() {
   };
 
   // 7. Appeal Verdict
-  const handleFileAppeal = async (grantId: number, reason: string, bondWei: bigint) => {
+  const handleFileAppeal = async (grantId: number, reason: string, bondWei: bigint, suppUrl?: string) => {
     if (!account) {
       await connectWallet();
       return;
@@ -344,12 +344,12 @@ export function App() {
       const txHash = await client.writeContract({
         address: DEFAULT_CONTRACT_ADDRESS as `0x${string}`,
         functionName: 'appeal_verdict',
-        args: [grantId, reason],
+        args: [grantId, reason, suppUrl || ''],
         value: bondWei,
       });
 
       await client.waitForTransactionReceipt({ hash: txHash });
-      setStatusMessage('Appeal recorded. Ready for Supreme Academic Council review!');
+      setStatusMessage('Appeal recorded with evidence on-chain. Ready for Supreme Council adjudication!');
       await fetchContractData();
     } finally {
       setIsActionLoading(false);
@@ -413,6 +413,38 @@ export function App() {
       await fetchContractData();
     } catch (err: any) {
       alert(`Settlement notice: ${err?.message || err}`);
+    } finally {
+      setIsActionLoading(false);
+      setTimeout(() => setStatusMessage(''), 4000);
+    }
+  };
+
+  // 10. Cancel or Reclaim Escrow
+  const handleCancelOrReclaim = async (grantId: number) => {
+    if (!account) {
+      await connectWallet();
+      return;
+    }
+    setIsActionLoading(true);
+    setStatusMessage(`Requesting escrow cancellation & refund for Grant #${grantId}...`);
+    try {
+      const client = createClient({
+        chain: GENLAYER_STUDIONET,
+        account: account as `0x${string}`,
+      });
+
+      const txHash = await client.writeContract({
+        address: DEFAULT_CONTRACT_ADDRESS as `0x${string}`,
+        functionName: 'cancel_or_reclaim',
+        args: [grantId],
+        value: 0n,
+      });
+
+      await client.waitForTransactionReceipt({ hash: txHash });
+      setStatusMessage('Grant milestone cancelled and escrow refunded to DAO!');
+      await fetchContractData();
+    } catch (err: any) {
+      alert(`Cancel / Reclaim notice: ${err?.message || err}`);
     } finally {
       setIsActionLoading(false);
       setTimeout(() => setStatusMessage(''), 4000);
@@ -640,7 +672,7 @@ export function App() {
                   setAppealMode('adjudicate_appeal');
                 }}
                 onFinalizeSettlement={handleFinalizeSettlement}
-                onCancelOrReclaim={() => {}}
+                onCancelOrReclaim={handleCancelOrReclaim}
                 isActionLoading={isActionLoading}
               />
             ))}

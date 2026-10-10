@@ -7,7 +7,7 @@ interface AppealModalProps {
   grant: ResearchGrantData | null;
   mode: 'file_appeal' | 'adjudicate_appeal';
   onClose: () => void;
-  onSubmitFileAppeal: (grantId: number, reason: string, bondWei: bigint) => Promise<void>;
+  onSubmitFileAppeal: (grantId: number, reason: string, bondWei: bigint, suppUrl?: string) => Promise<void>;
   onSubmitAdjudicateAppeal: (grantId: number, suppUrl: string) => Promise<void>;
   isLoading: boolean;
 }
@@ -33,6 +33,7 @@ export const AppealModal: React.FC<AppealModalProps> = ({
   const handleFillSample = () => {
     if (mode === 'file_appeal') {
       setReason("Independent replication by external accredited genomics laboratory refutes p-hacking claims; raw sequencing FASTQ logs re-verified.");
+      setSuppUrl("https://raw.githubusercontent.com/tuannguyen1995/AgentGrant/main/contracts/contract.py");
     } else {
       setSuppUrl("https://raw.githubusercontent.com/tuannguyen1995/AgentGrant/main/contracts/contract.py");
     }
@@ -48,7 +49,7 @@ export const AppealModal: React.FC<AppealModalProps> = ({
         return;
       }
       try {
-        await onSubmitFileAppeal(grant.grant_id, reason.trim(), requiredBond);
+        await onSubmitFileAppeal(grant.grant_id, reason.trim(), requiredBond, suppUrl.trim());
         onClose();
       } catch (err: any) {
         setError(err?.message || 'Failed to file appeal.');
@@ -135,12 +136,28 @@ export const AppealModal: React.FC<AppealModalProps> = ({
                 </label>
                 <textarea
                   required
-                  rows={4}
+                  rows={3}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Detail the independent laboratory replications, calibration standard certificates, or counter-evidence addressing the prior AI peer-review critique..."
                   className="w-full px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-600 font-sans font-medium"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Supplemental Replication Audit URL (Optional / Recommended)
+                </label>
+                <input
+                  type="url"
+                  value={suppUrl}
+                  onChange={(e) => setSuppUrl(e.target.value)}
+                  placeholder="https://nrel.gov/pv/calibration/cert_9881.txt"
+                  className="w-full px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-600 font-mono font-medium"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Attached replication evidence will be stored on-chain and reviewed by the Supreme Academic Council.
+                </p>
               </div>
             </>
           ) : (

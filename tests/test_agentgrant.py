@@ -2,6 +2,7 @@ import pytest
 import json
 import os
 import sys
+import types
 
 # Ensure contracts directory is reachable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "contracts")))
@@ -27,7 +28,7 @@ class MockTransferContract:
         self.transfers = []
 
     def emit_transfer(self, value):
-        self.transfers.append({"to": self.address, "value": value})
+        self.transfers.append({"to": self.address, "value": int(value)})
         return True
 
 
@@ -57,7 +58,7 @@ class MockNondetWeb:
     def render(self, url, mode="text"):
         if url in self.mock_responses:
             return self.mock_responses[url]
-        return "P_VALUE:0.003 SAMPLE_SIZE:480 CONTROL_VALIDATED:TRUE REPRODUCIBLE"
+        return "P_VALUE:0.003 SAMPLE_SIZE:480 CONTROL_VALIDATED:TRUE REPRODUCIBLE NREL_CERTIFIED_EFFICIENCY:22.4%"
 
 
 class MockNondet:
@@ -91,6 +92,8 @@ class MockVM:
 class MockGenLayerEnv:
     def __init__(self):
         self.message = MockMessage()
+        self.message_raw = {"datetime": "2026-10-10T12:00:00Z"}
+        self.block = types.SimpleNamespace(number=1000, timestamp=1760000000)
         self.nondet = MockNondet()
         self.vm = MockVM()
         self.contracts = {}
@@ -101,9 +104,13 @@ class MockGenLayerEnv:
             self.contracts[addr_str] = MockTransferContract(addr_str)
         return self.contracts[addr_str]
 
+    def advance_blocks(self, count: int = 30):
+        """Advances the simulated GenVM block height and timestamp."""
+        self.block.number += count
+        self.block.timestamp += count * 2
+
 
 def setup_gl_mock():
-    import types
     mock_env = MockGenLayerEnv()
 
     gl_module = types.ModuleType("genlayer")
@@ -153,7 +160,7 @@ def setup_gl_mock():
 
 
 # ---------------------------------------------------------------------------
-# UNIT TESTS: Full Coverage for Roles, Whistleblowing, Freezing, Appeals
+# UNIT TESTS: Full Coverage for Roles, Block Clock, Appeals, and Payout Paths
 # ---------------------------------------------------------------------------
 
 def test_agentgrant_milestone_accepted_lifecycle():
@@ -198,13 +205,16 @@ def test_agentgrant_milestone_accepted_lifecycle():
     assert grant_json["rigor_score"] == 92
     assert grant_json["reproducibility_pct"] == 88
 
-    # Step 4: Advance past 24 blocks and finalize payout
-    app.grant_counter = 100
+    # Step 4: Advance past 24 blocks via block clock and finalize payout
+    mock_env.advance_blocks(30)
     app.finalize_settlement(grant_id=gid)
 
     grant_json = json.loads(app.get_grant(gid))
     assert grant_json["status"] == 4  # STATUS_SETTLED_ACCEPTED
     assert grant_json["escrow_amount"] == "0"
+    assert app.total_grant_locked == 0
+    assert len(mock_env.get_contract_at(researcher).transfers) == 1
+    assert mock_env.get_contract_at(researcher).transfers[0]["value"] == 10**18
 
 
 def test_agentgrant_whistleblower_fraud_reporting_and_freeze():
@@ -263,14 +273,17 @@ def test_agentgrant_whistleblower_fraud_reporting_and_freeze():
     assert grant_json["status"] == 3  # STATUS_AWAITING_PAYOUT
     assert grant_json["verdict"] == "REJECTED_ACADEMIC_FRAUD"
 
-    # Finalize settlement refunds DAO and rewards whistleblower
-    app.grant_counter = 120
+    # Finalize settlement refunds DAO and rewards whistleblower after 24-block window
+    mock_env.advance_blocks(30)
     app.finalize_settlement(grant_id=gid)
 
     grant_json = json.loads(app.get_grant(gid))
     assert grant_json["status"] == 5  # STATUS_SETTLED_FRAUD
     stats = json.loads(app.get_stats())
     assert stats["total_frauds_stopped"] == 1
+    assert app.total_grant_locked == 0
+    assert mock_env.get_contract_at(dao).transfers[-1]["value"] == 2 * 10**18
+    assert mock_env.get_contract_at(whistleblower).transfers[-1]["value"] == 10**17
 
 
 def test_agentgrant_emergency_freeze_and_unfreeze():
@@ -304,7 +317,7 @@ def test_agentgrant_emergency_freeze_and_unfreeze():
     assert g_json2["status"] == 1  # back to STATUS_SUBMITTED
 
 
-def test_agentgrant_appeal_and_dispute_flow():
+def test_agentgrant_appeal_upheld_accepted_flow():
     mock_env = setup_gl_mock()
     import contract
     contract.gl = mock_env
@@ -340,31 +353,259 @@ def test_agentgrant_appeal_and_dispute_flow():
     mock_env.message.sender_address = dao
     app.adjudicate_peer_review(grant_id=gid)
 
-    # Researcher appeals with 10% bond
+    # Researcher appeals with 10% bond and attaches evidence URL
     mock_env.message.sender_address = researcher
     mock_env.message.value = 10**17
     app.appeal_verdict(
         grant_id=gid,
-        dispute_reason="Third-party NREL calibration certifies >22.1% under standardized solar simulator."
+        dispute_reason="Third-party NREL calibration certifies >22.1% under standardized solar simulator.",
+        supplemental_reproduction_url="https://nrel.gov/pv/calibration/cert_9881.txt"
     )
 
     grant_json = json.loads(app.get_grant(gid))
     assert grant_json["status"] == 7  # STATUS_DISPUTED
     assert grant_json["dispute_bond"] == str(10**17)
+    assert grant_json["prior_verdict"] == "PARTIAL_REVISION_GRANT"
+    assert grant_json["appeal_evidence_url"] == "https://nrel.gov/pv/calibration/cert_9881.txt"
 
-    # Supreme Court adjudication
+    # Supreme Court adjudication upholds appeal
     mock_env.nondet.llm_response = {
         "canary": "CANARY_AGENT_GRANT_DESCI_V1",
         "verdict": "APPEAL_UPHELD_ACCEPTED",
         "reason": "Independent NREL laboratory verification confirms 22.4% cell efficiency."
     }
 
+    # Supreme court executes adjudication
     mock_env.message.sender_address = dao
-    app.adjudicate_appeal(grant_id=gid, supplemental_reproduction_url="https://nrel.gov/pv/calibration/cert_9881.txt")
+    app.adjudicate_appeal(grant_id=gid)
 
     final_data = json.loads(app.get_grant(gid))
     assert final_data["status"] == 4  # STATUS_SETTLED_ACCEPTED
     assert final_data["verdict"] == "MILESTONE_ACCEPTED_FULL"
+    assert app.total_grant_locked == 0
+    # Researcher gets 100% escrow (10^18) + bond refund (10^17)
+    researcher_transfers = mock_env.get_contract_at(researcher).transfers
+    assert any(t["value"] == 10**18 for t in researcher_transfers)
+    assert any(t["value"] == 10**17 for t in researcher_transfers)
+
+
+def test_agentgrant_appeal_dismissed_dao_appellant_preserves_acceptance():
+    """
+    Steward Pavel Kolosov catch:
+    If DAO appeals an accepted milestone (e.g. alleging late defect) and the appeal is DISMISSED,
+    the contract must preserve MILESTONE_ACCEPTED_FULL:
+    - Escrow (100%) goes to Researcher
+    - Dispute bond goes to Researcher (counterparty)
+    - Total locked decrements to 0
+    """
+    mock_env = setup_gl_mock()
+    import contract
+    contract.gl = mock_env
+
+    app = contract.Contract()
+    dao = SimulatedAddress("0x1111111111111111111111111111111111111111")
+    researcher = SimulatedAddress("0x2222222222222222222222222222222222222222")
+
+    mock_env.message.sender_address = dao
+    mock_env.message.value = 10**18
+    gid = app.create_grant_milestone(
+        project_title="Synthetic Organoid Neural Tissue",
+        methodology_spec="Patch-clamp electrophysiology validation with open-source raw SpikeTrain data",
+        duration_blocks=6000
+    )
+
+    mock_env.message.sender_address = researcher
+    app.submit_research_deliverable(
+        grant_id=gid,
+        preprint_url="https://biorxiv.org/organoid.txt",
+        raw_dataset_url="https://zenodo.org/spiketrain.csv"
+    )
+
+    # Initial peer review: ACCEPTED FULL
+    mock_env.nondet.llm_response = {
+        "canary": "CANARY_AGENT_GRANT_DESCI_V1",
+        "verdict": "MILESTONE_ACCEPTED_FULL",
+        "confidence": 95,
+        "rigor_score": 90,
+        "reproducibility_pct": 92,
+        "reason": "Electrophysiology traces validated; full spike records verified."
+    }
+    mock_env.message.sender_address = dao
+    app.adjudicate_peer_review(grant_id=gid)
+
+    grant_json = json.loads(app.get_grant(gid))
+    assert grant_json["verdict"] == "MILESTONE_ACCEPTED_FULL"
+
+    # DAO disputes and appeals with 10% bond
+    mock_env.message.sender_address = dao
+    mock_env.message.value = 10**17
+    app.appeal_verdict(
+        grant_id=gid,
+        dispute_reason="DAO committee requests re-checking channel noise threshold.",
+        supplemental_reproduction_url="https://dao-audit.org/channel_noise.txt"
+    )
+
+    grant_json = json.loads(app.get_grant(gid))
+    assert grant_json["status"] == 7  # STATUS_DISPUTED
+    assert grant_json["prior_verdict"] == "MILESTONE_ACCEPTED_FULL"
+
+    # Appellate AI council dismisses DAO appeal
+    mock_env.nondet.llm_response = {
+        "canary": "CANARY_AGENT_GRANT_DESCI_V1",
+        "verdict": "APPEAL_DISMISSED",
+        "reason": "Channel noise is within standard patch-clamp tolerance; initial acceptance confirmed."
+    }
+    mock_env.message.sender_address = researcher
+    app.adjudicate_appeal(grant_id=gid)
+
+    final_data = json.loads(app.get_grant(gid))
+    assert final_data["status"] == 4  # STATUS_SETTLED_ACCEPTED
+    assert final_data["verdict"] == "MILESTONE_ACCEPTED_FULL"
+    assert "PRIOR ACCEPTANCE AFFIRMED" in final_data["reason"]
+    assert app.total_grant_locked == 0
+
+    # Researcher receives 100% escrow (10^18) AND the forfeited DAO dispute bond (10^17)
+    researcher_transfers = mock_env.get_contract_at(researcher).transfers
+    assert any(t["value"] == 10**18 for t in researcher_transfers)
+    assert any(t["value"] == 10**17 for t in researcher_transfers)
+    # DAO received nothing
+    dao_transfers = mock_env.get_contract_at(dao).transfers
+    assert len(dao_transfers) == 0
+
+
+def test_agentgrant_appeal_dismissed_researcher_appellant_preserves_fraud():
+    """
+    If Researcher appeals a fraud verdict and the appeal is DISMISSED:
+    - Escrow (100%) refunded to DAO
+    - Dispute bond forfeited to DAO (counterparty)
+    - Status is STATUS_SETTLED_FRAUD
+    - Total locked decrements cleanly to 0
+    """
+    mock_env = setup_gl_mock()
+    import contract
+    contract.gl = mock_env
+
+    app = contract.Contract()
+    dao = SimulatedAddress("0x1111111111111111111111111111111111111111")
+    researcher = SimulatedAddress("0x2222222222222222222222222222222222222222")
+
+    mock_env.message.sender_address = dao
+    mock_env.message.value = 10**18
+    gid = app.create_grant_milestone("Room Temp Superconductor", "SQUID magnetometry at 300K", 6000)
+
+    mock_env.message.sender_address = researcher
+    app.submit_research_deliverable(gid, "https://arxiv.org/lk99.txt", "https://github.com/data.csv")
+
+    # Initial peer review: REJECTED_ACADEMIC_FRAUD
+    mock_env.nondet.llm_response = {
+        "canary": "CANARY_AGENT_GRANT_DESCI_V1",
+        "verdict": "REJECTED_ACADEMIC_FRAUD",
+        "confidence": 98,
+        "rigor_score": 15,
+        "reproducibility_pct": 5,
+        "reason": "Resistance drop is an artifact of ferromagnetism, not superconductivity."
+    }
+    mock_env.message.sender_address = dao
+    app.adjudicate_peer_review(grant_id=gid)
+
+    # Researcher appeals with 10% bond
+    mock_env.message.sender_address = researcher
+    mock_env.message.value = 10**17
+    app.appeal_verdict(
+        grant_id=gid,
+        dispute_reason="Independent replication underway at auxiliary lab.",
+        supplemental_reproduction_url="https://aux-lab.org/replication.txt"
+    )
+
+    # Appeal dismissed
+    mock_env.nondet.llm_response = {
+        "canary": "CANARY_AGENT_GRANT_DESCI_V1",
+        "verdict": "APPEAL_DISMISSED",
+        "reason": "Replication failed to produce zero resistance."
+    }
+    mock_env.message.sender_address = dao
+    app.adjudicate_appeal(grant_id=gid)
+
+    final_data = json.loads(app.get_grant(gid))
+    assert final_data["status"] == 5  # STATUS_SETTLED_FRAUD
+    assert final_data["verdict"] == "REJECTED_ACADEMIC_FRAUD"
+    assert "PRIOR FRAUD AFFIRMED" in final_data["reason"]
+    assert app.total_grant_locked == 0
+
+    # DAO receives 100% escrow refund (10^18) AND the forfeited researcher dispute bond (10^17)
+    dao_transfers = mock_env.get_contract_at(dao).transfers
+    assert any(t["value"] == 10**18 for t in dao_transfers)
+    assert any(t["value"] == 10**17 for t in dao_transfers)
+
+
+def test_agentgrant_appellate_evidence_restricted_to_bonded_appellant():
+    mock_env = setup_gl_mock()
+    import contract
+    contract.gl = mock_env
+
+    app = contract.Contract()
+    dao = SimulatedAddress("0x1111111111111111111111111111111111111111")
+    researcher = SimulatedAddress("0x2222222222222222222222222222222222222222")
+    stranger = SimulatedAddress("0x8888888888888888888888888888888888888888")
+
+    mock_env.message.sender_address = dao
+    mock_env.message.value = 10**18
+    gid = app.create_grant_milestone("RNA Epigenetics", "m6A methylation sequencing", 6000)
+
+    mock_env.message.sender_address = researcher
+    app.submit_research_deliverable(gid, "https://biorxiv.org/rna.txt", "https://zenodo.org/data.csv")
+
+    mock_env.message.sender_address = dao
+    app.adjudicate_peer_review(grant_id=gid)
+
+    # Researcher appeals
+    mock_env.message.sender_address = researcher
+    mock_env.message.value = 10**17
+    app.appeal_verdict(gid, "Valid dispute reason over sequencing coverage depth.")
+
+    # Stranger attempts to inject supplemental evidence into adjudication -> rejected
+    mock_env.message.sender_address = stranger
+    with pytest.raises(contract.gl.UserError, match="Permission Denied: Only the bonded appellant can provide or update appellate evidence"):
+        app.adjudicate_appeal(gid, supplemental_reproduction_url="https://stranger-tampered.org/fake.txt")
+
+
+def test_agentgrant_cancel_or_reclaim_lifecycle():
+    """
+    Tests DAO cancel and escrow reclaim lifecycle:
+    - Reclaim before duration expires should fail.
+    - Reclaim after expiration succeeds and dispatches 100% escrow back to DAO.
+    """
+    mock_env = setup_gl_mock()
+    import contract
+    contract.gl = mock_env
+
+    app = contract.Contract()
+    dao = SimulatedAddress("0x1111111111111111111111111111111111111111")
+
+    mock_env.message.sender_address = dao
+    mock_env.message.value = 10**18
+    gid = app.create_grant_milestone(
+        project_title="Unclaimed Dark Matter Search",
+        methodology_spec="Cryogenic liquid xenon detector specs",
+        duration_blocks=100
+    )
+
+    # Premature cancel attempt fails
+    with pytest.raises(contract.gl.UserError, match="Cannot cancel: Grant milestone duration has not expired"):
+        app.cancel_or_reclaim(gid)
+
+    # Advance clock past duration (100 blocks)
+    mock_env.advance_blocks(110)
+
+    # Reclaim succeeds
+    app.cancel_or_reclaim(gid)
+
+    grant_json = json.loads(app.get_grant(gid))
+    assert grant_json["status"] == 8  # STATUS_CANCELLED
+    assert grant_json["verdict"] == "CANCELLED"
+    assert app.total_grant_locked == 0
+    assert len(mock_env.get_contract_at(dao).transfers) == 1
+    assert mock_env.get_contract_at(dao).transfers[0]["value"] == 10**18
 
 
 def test_agentgrant_role_violations_and_edge_cases():

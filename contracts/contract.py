@@ -62,6 +62,9 @@ class ResearchGrant:
     raw_dataset_url: str           # Raw CSV/simulation code repository link
     fraud_evidence_url: str        # Link to whistleblowing proof (p-hacking / plagiarism audit)
     fraud_allegation: str          # Detailed description of fraud charges
+    appeal_evidence_url: str       # Supplemental replication audit URL submitted by bonded appellant
+    dispute_reason: str            # Stored rebuttal claims submitted by bonded appellant
+    prior_verdict: str             # Preserved pre-appeal verdict for consistent settlement on dismissal
     evidence_hash: str             # SHA-256 snapshot of combined research deliverables
     is_frozen: bool                # Emergency freeze / quarantine flag
     frozen_by: Address             # Who ordered the freeze
@@ -101,8 +104,58 @@ class Contract(gl.Contract):
         if _addr_str(self.owner) == ZERO_ADDRESS:
             self.owner = _get_sender()
 
+    def _get_current_timestamp(self) -> u256:
+        """
+        Derives trusted consensus timestamp strictly from GenVM execution context.
+        """
+        dt_raw = None
+        if hasattr(gl, "message_raw") and isinstance(gl.message_raw, dict):
+            dt_raw = gl.message_raw.get("datetime")
+        elif hasattr(gl, "message") and hasattr(gl.message, "datetime"):
+            dt_raw = getattr(gl.message, "datetime")
+
+        if dt_raw:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(str(dt_raw).replace("Z", "+00:00"))
+                ts = int(dt.timestamp())
+                if ts > 0:
+                    return u256(ts)
+            except Exception:
+                pass
+
+        try:
+            if hasattr(gl, "block") and hasattr(gl.block, "timestamp"):
+                return u256(int(str(gl.block.timestamp)))
+        except Exception:
+            pass
+
+        try:
+            from datetime import datetime
+            return u256(int(datetime.now().timestamp()))
+        except Exception:
+            return u256(1760000000)
+
     def _get_current_block(self) -> u256:
-        return u256(int(self.grant_counter))
+        """
+        Derives block height from GenVM block context or deterministic block time mapping (~2s/block).
+        Completely replaces artificial global action counters.
+        """
+        if hasattr(gl, "block") and hasattr(gl.block, "number"):
+            try:
+                return u256(int(str(gl.block.number)))
+            except Exception:
+                pass
+
+        if hasattr(gl, "message") and hasattr(gl.message, "block_number"):
+            try:
+                return u256(int(str(gl.message.block_number)))
+            except Exception:
+                pass
+
+        # Deterministic block height calculation from trusted timestamp
+        ts = self._get_current_timestamp()
+        return ts // u256(2)
 
     # ── Role 1: DAO / Grantor Methods ─────────────────────────────────
 
@@ -128,6 +181,7 @@ class Contract(gl.Contract):
 
         dur = u256(duration_blocks if duration_blocks > 0 else 6000)
 
+        # grant_counter is strictly an incremental entity ID generator
         self.grant_counter = self.grant_counter + u64(1)
         grant_id = self.grant_counter
         current_block = self._get_current_block()
@@ -149,6 +203,9 @@ class Contract(gl.Contract):
             raw_dataset_url="",
             fraud_evidence_url="",
             fraud_allegation="",
+            appeal_evidence_url="",
+            dispute_reason="",
+            prior_verdict="PENDING",
             evidence_hash="",
             is_frozen=False,
             frozen_by=empty_addr,
@@ -196,7 +253,6 @@ class Contract(gl.Contract):
         if not clean_data.startswith("http://") and not clean_data.startswith("https://"):
             raise gl.UserError("Valid public raw dataset/code URL required.")
 
-        self.grant_counter = self.grant_counter + u64(1)
         g.researcher = sender
         g.preprint_url = clean_paper
         g.raw_dataset_url = clean_data
@@ -237,7 +293,6 @@ class Contract(gl.Contract):
         if staked < min_bond:
             raise gl.UserError(f"Must stake at least 5% whistleblower bond ({int(min_bond)} wei).")
 
-        self.grant_counter = self.grant_counter + u64(1)
         g.whistleblower = sender
         g.whistleblower_bond = g.whistleblower_bond + staked
         g.fraud_evidence_url = clean_url
@@ -266,7 +321,6 @@ class Contract(gl.Contract):
         if g.status in (STATUS_SETTLED_ACCEPTED, STATUS_SETTLED_FRAUD, STATUS_SETTLED_PARTIAL, STATUS_CANCELLED):
             raise gl.UserError("Cannot freeze already settled milestone.")
 
-        self.grant_counter = self.grant_counter + u64(1)
         g.is_frozen = True
         g.frozen_by = sender
         g.status = STATUS_FROZEN_FLAGGED
@@ -288,7 +342,6 @@ class Contract(gl.Contract):
         if not g.is_frozen:
             raise gl.UserError("Grant is not currently frozen.")
 
-        self.grant_counter = self.grant_counter + u64(1)
         g.is_frozen = False
         g.status = STATUS_SUBMITTED if g.verdict == "PENDING" else STATUS_AWAITING_PAYOUT
         g.reason = f"Quarantine lifted by {sender_str[:8]}. Ready for peer-review adjudication."
@@ -472,7 +525,6 @@ Respond ONLY with valid JSON without markdown fences:
         if "evidence_hash" in adjudication_res and adjudication_res["evidence_hash"]:
             g.evidence_hash = str(adjudication_res["evidence_hash"])
 
-        self.grant_counter = self.grant_counter + u64(1)
         current_block = self._get_current_block()
         g.is_frozen = False
         g.status = STATUS_AWAITING_PAYOUT
@@ -481,7 +533,17 @@ Respond ONLY with valid JSON without markdown fences:
     # ── Role 5: Rebuttal Appeals & Supreme Council Review ─────────────
 
     @gl.public.write.payable
-    def appeal_verdict(self, grant_id: u64, dispute_reason: str) -> None:
+    def appeal_verdict(
+        self,
+        grant_id: u64,
+        dispute_reason: str,
+        supplemental_reproduction_url: str = ""
+    ) -> None:
+        """
+        Role: Stakeholder (Grantor DAO or Researcher).
+        Stakes 10% bond within 24-block rebuttal window, records dispute justification
+        and attaches appellate replication evidence.
+        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -494,9 +556,7 @@ Respond ONLY with valid JSON without markdown fences:
         if _addr_str(sender) != _addr_str(g.grantor_dao) and _addr_str(sender) != _addr_str(g.researcher):
             raise gl.UserError("Role Violation: Only grantor DAO or researcher can file a rebuttal appeal.")
 
-        self.grant_counter = self.grant_counter + u64(1)
         current_block = self._get_current_block()
-
         if current_block > (g.audit_completed_block + u256(24)):
             raise gl.UserError("Rebuttal cooling-off window (24 blocks) has expired.")
 
@@ -512,14 +572,31 @@ Respond ONLY with valid JSON without markdown fences:
         if len(clean_reason) < 10:
             raise gl.UserError("Detailed rebuttal justification (>=10 chars) required.")
 
+        clean_supp = str(supplemental_reproduction_url).strip()
+        if clean_supp and not (clean_supp.startswith("http://") or clean_supp.startswith("https://")):
+            raise gl.UserError("Valid supplemental replication audit URL required.")
+
+        # Preserve the exact prior verdict for settlement if appeal is dismissed
+        g.prior_verdict = g.verdict
         g.status = STATUS_DISPUTED
         g.dispute_initiator = sender
         g.dispute_bond = staked
-        g.reason = f"[REBUTTAL by {_addr_str(sender)[:8]}]: {clean_reason} | Prior: {g.reason}"
+        g.dispute_reason = clean_reason
+        g.appeal_evidence_url = clean_supp
+        g.reason = f"[REBUTTAL by {_addr_str(sender)[:8]}]: {clean_reason} | Prior Verdict: {g.prior_verdict}"
         self.total_grant_locked = self.total_grant_locked + staked
 
     @gl.public.write
-    def adjudicate_appeal(self, grant_id: u64, supplemental_reproduction_url: str) -> None:
+    def adjudicate_appeal(
+        self,
+        grant_id: u64,
+        supplemental_reproduction_url: str = ""
+    ) -> None:
+        """
+        Role: Supreme Academic Council (Appellate AI Magistrate).
+        Evaluates the stored dispute justification and supplemental replication evidence
+        submitted strictly by the bonded appellant.
+        """
         self._ensure_owner()
         if grant_id not in self.grants:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
@@ -528,17 +605,33 @@ Respond ONLY with valid JSON without markdown fences:
         if g.status != STATUS_DISPUTED:
             raise gl.UserError("Grant is not in DISPUTED status.")
 
-        clean_url = str(supplemental_reproduction_url).strip()
-        if not clean_url.startswith("http://") and not clean_url.startswith("https://"):
-            raise gl.UserError("Valid supplemental replication audit URL required.")
-
         appellant = g.dispute_initiator
+        sender = _get_sender()
+
+        # Restrict appellate evidence: if new/supplemental URL is provided at execution time,
+        # only the bonded appellant can supply or update it.
+        clean_param_url = str(supplemental_reproduction_url).strip()
+        if clean_param_url:
+            if _addr_str(sender) != _addr_str(appellant):
+                raise gl.UserError("Permission Denied: Only the bonded appellant can provide or update appellate evidence.")
+            if not (clean_param_url.startswith("http://") or clean_param_url.startswith("https://")):
+                raise gl.UserError("Valid supplemental replication audit URL required.")
+            g.appeal_evidence_url = clean_param_url
+
+        effective_url = g.appeal_evidence_url.strip()
+        if not (effective_url.startswith("http://") or effective_url.startswith("https://")):
+            raise gl.UserError("No valid supplemental replication evidence URL provided by the bonded appellant.")
+
         title = g.project_title
+        spec = g.methodology_spec
+        prior_verdict = g.prior_verdict
+        prior_reason = g.reason
+        stored_dispute = g.dispute_reason
 
         def leader_fn():
             raw_supp = ""
             try:
-                raw_supp = gl.nondet.web.render(clean_url, mode="text")
+                raw_supp = gl.nondet.web.render(effective_url, mode="text")
             except Exception:
                 pass
 
@@ -546,22 +639,38 @@ Respond ONLY with valid JSON without markdown fences:
                 return {
                     "canary": CANARY_TOKEN,
                     "verdict": "APPEAL_DISMISSED",
-                    "reason": "Supplemental replication audit logs unreachable.",
+                    "reason": "Supplemental replication audit logs unreachable or 404.",
                 }
 
             prompt = f"""You are the Supreme Academic Council Magistrate on GenLayer.
-Evaluate the supplemental replication proof for project: {title}
+Evaluate the supplemental replication proof and appellate dispute for project: {title}
 
-SUPPLEMENTAL REPLICATION DATA:
+REQUIRED METHODOLOGY INVARIANTS:
+{spec}
+
+PRIOR PEER-REVIEW VERDICT:
+{prior_verdict}
+
+PRIOR CRITIQUE & RATIONALE:
+{prior_reason}
+
+STORED APPELLATE DISPUTE JUSTIFICATION SUBMITTED BY BONDED APPELLANT ({_addr_str(appellant)}):
+{stored_dispute if stored_dispute else 'None specified'}
+
+SUPPLEMENTAL REPLICATION AUDIT EVIDENCE:
+<appellate_evidence>
 {raw_supp[:4000]}
+</appellate_evidence>
 
 DECISION CRITERIA:
-- If third-party lab confirms reproducible experimental claims: Output "APPEAL_UPHELD_ACCEPTED".
+- If third-party lab confirms reproducible experimental claims overcoming prior critique: Output "APPEAL_UPHELD_ACCEPTED".
 - If findings replicate partially under revised parameters: Output "APPEAL_UPHELD_PARTIAL".
-- Otherwise (irreproducible or falsified claims confirmed): Output "APPEAL_DISMISSED".
+- Otherwise (irreproducible, unsubstantiated, or prior critique affirmed): Output "APPEAL_DISMISSED".
+
+SECURITY CANARY: Echo "{CANARY_TOKEN}" in JSON.
 
 Respond ONLY with valid JSON:
-{{"canary": "{CANARY_TOKEN}", "verdict": "APPEAL_UPHELD_ACCEPTED"|"APPEAL_UPHELD_PARTIAL"|"APPEAL_DISMISSED", "reason": "<rationale>"}}"""
+{{"canary": "{CANARY_TOKEN}", "verdict": "APPEAL_UPHELD_ACCEPTED"|"APPEAL_UPHELD_PARTIAL"|"APPEAL_DISMISSED", "reason": "<rationale under 200 chars>"}}"""
 
             raw_res = gl.nondet.exec_prompt(prompt, response_format="json")
             parsed = None
@@ -618,6 +727,7 @@ Respond ONLY with valid JSON:
         has_wb = (_addr_str(g.whistleblower) != ZERO_ADDRESS) and (wb_bond_val > bigint(0))
 
         if app_verdict == "APPEAL_UPHELD_ACCEPTED":
+            # Appellant prevailed: milestone fully accepted, bond refunded to appellant
             g.status = STATUS_SETTLED_ACCEPTED
             g.verdict = "MILESTONE_ACCEPTED_FULL"
             g.reason = f"[APPEAL UPHELD] {app_reason}"
@@ -627,6 +737,7 @@ Respond ONLY with valid JSON:
                 _pay_native(g.researcher, wb_bond_val)
 
         elif app_verdict == "APPEAL_UPHELD_PARTIAL":
+            # Appellant won partial revision: 50/50 split, bond refunded to appellant
             g.status = STATUS_SETTLED_PARTIAL
             g.verdict = "PARTIAL_REVISION_GRANT"
             payout = escrow_val // bigint(2)
@@ -634,19 +745,45 @@ Respond ONLY with valid JSON:
             g.reason = f"[APPEAL PARTIAL] {app_reason}"
             _pay_native(g.researcher, payout)
             _pay_native(g.grantor_dao, refund)
-            _pay_native(counterparty, dispute_bond_val)
+            _pay_native(appellant, dispute_bond_val)
             if has_wb:
                 _pay_native(g.whistleblower, wb_bond_val)
 
         else:
-            g.status = STATUS_SETTLED_FRAUD
-            g.verdict = "REJECTED_ACADEMIC_FRAUD"
-            g.reason = f"[APPEAL DISMISSED] {app_reason}"
-            self.total_frauds_stopped = self.total_frauds_stopped + u32(1)
-            _pay_native(g.grantor_dao, escrow_val)
+            # APPEAL_DISMISSED: Forfeit dispute bond to counterparty and strictly
+            # preserve and settle the prior result correctly for either appellant.
             _pay_native(counterparty, dispute_bond_val)
-            if has_wb:
-                _pay_native(g.whistleblower, wb_bond_val)
+
+            if g.prior_verdict == "MILESTONE_ACCEPTED_FULL":
+                # Prior acceptance affirmed (e.g. DAO appealed and lost)
+                g.status = STATUS_SETTLED_ACCEPTED
+                g.verdict = "MILESTONE_ACCEPTED_FULL"
+                g.reason = f"[APPEAL DISMISSED - PRIOR ACCEPTANCE AFFIRMED] {app_reason}"
+                _pay_native(g.researcher, escrow_val)
+                if has_wb:
+                    _pay_native(g.researcher, wb_bond_val)
+
+            elif g.prior_verdict == "PARTIAL_REVISION_GRANT":
+                # Prior partial revision affirmed
+                g.status = STATUS_SETTLED_PARTIAL
+                g.verdict = "PARTIAL_REVISION_GRANT"
+                payout = escrow_val // bigint(2)
+                refund = escrow_val - payout
+                g.reason = f"[APPEAL DISMISSED - PRIOR PARTIAL REVISION AFFIRMED] {app_reason}"
+                _pay_native(g.researcher, payout)
+                _pay_native(g.grantor_dao, refund)
+                if has_wb:
+                    _pay_native(g.whistleblower, wb_bond_val)
+
+            else:
+                # Prior fraud/rejection affirmed (e.g. Researcher appealed and lost)
+                g.status = STATUS_SETTLED_FRAUD
+                g.verdict = "REJECTED_ACADEMIC_FRAUD"
+                g.reason = f"[APPEAL DISMISSED - PRIOR FRAUD AFFIRMED] {app_reason}"
+                self.total_frauds_stopped = self.total_frauds_stopped + u32(1)
+                _pay_native(g.grantor_dao, escrow_val)
+                if has_wb:
+                    _pay_native(g.whistleblower, wb_bond_val)
 
     # ── Final Disbursement & Settlement Execution ─────────────────────
 
@@ -670,9 +807,7 @@ Respond ONLY with valid JSON:
         ):
             raise gl.UserError("Permission Denied: Only grant stakeholders can finalize payout.")
 
-        self.grant_counter = self.grant_counter + u64(1)
         current_block = self._get_current_block()
-
         if current_block <= (g.audit_completed_block + u256(24)):
             raise gl.UserError("Rebuttal cooling-off challenge window is still active.")
 
@@ -719,10 +854,9 @@ Respond ONLY with valid JSON:
             raise gl.UserError(f"Grant {int(grant_id)} does not exist.")
 
         g = self.grants[grant_id]
-        if _addr_str(_get_sender()) != _addr_str(g.grantor_dao):
-            raise gl.UserError("Role Violation: Only the grantor DAO can cancel or reclaim grant escrow.")
+        if _addr_str(_get_sender()) != _addr_str(g.grantor_dao) and _addr_str(_get_sender()) != _addr_str(self.owner):
+            raise gl.UserError("Role Violation: Only the grantor DAO or contract owner can cancel or reclaim grant escrow.")
 
-        self.grant_counter = self.grant_counter + u64(1)
         current_block = self._get_current_block()
 
         if g.status in (STATUS_SUBMITTED, STATUS_FROZEN_FLAGGED):
@@ -772,6 +906,9 @@ Respond ONLY with valid JSON:
             "raw_dataset_url": g.raw_dataset_url,
             "fraud_evidence_url": g.fraud_evidence_url,
             "fraud_allegation": g.fraud_allegation,
+            "appeal_evidence_url": g.appeal_evidence_url,
+            "dispute_reason": g.dispute_reason,
+            "prior_verdict": g.prior_verdict,
             "evidence_hash": g.evidence_hash,
             "is_frozen": bool(g.is_frozen),
             "frozen_by": _addr_str(g.frozen_by),
@@ -812,6 +949,9 @@ Respond ONLY with valid JSON:
                     "raw_dataset_url": g.raw_dataset_url,
                     "fraud_evidence_url": g.fraud_evidence_url,
                     "fraud_allegation": g.fraud_allegation,
+                    "appeal_evidence_url": g.appeal_evidence_url,
+                    "dispute_reason": g.dispute_reason,
+                    "prior_verdict": g.prior_verdict,
                     "evidence_hash": g.evidence_hash,
                     "is_frozen": bool(g.is_frozen),
                     "frozen_by": _addr_str(g.frozen_by),

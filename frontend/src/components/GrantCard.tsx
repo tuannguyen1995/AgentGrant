@@ -244,13 +244,23 @@ export const GrantCard: React.FC<GrantCardProps> = ({
         
         {/* Primary State Flow Buttons */}
         {grant.status === 0 && (
-          <button
-            onClick={() => onOpenSubmit(grant)}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-black font-bold rounded-xl text-xs shadow-lg transition"
-          >
-            <span>Claim & Submit Research Deliverables</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={() => onOpenSubmit(grant)}
+              className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-black font-bold rounded-xl text-xs shadow-lg transition"
+            >
+              <span>Claim & Submit Research Deliverables</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onCancelOrReclaim(grant.grant_id)}
+              disabled={isActionLoading}
+              className="w-full flex items-center justify-center space-x-1.5 px-3 py-1.5 bg-red-950/30 hover:bg-red-900/40 text-red-300 border border-red-800/40 font-semibold rounded-xl text-xs transition"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+              <span>Cancel & Reclaim Escrow (DAO)</span>
+            </button>
+          </div>
         )}
 
         {(grant.status === 1 || grant.status === 2) && (
@@ -347,6 +357,17 @@ export const GrantCard: React.FC<GrantCardProps> = ({
             >
               <Snowflake className="w-3.5 h-3.5" />
               <span>Emergency Freeze</span>
+            </button>
+          )}
+
+          {(grant.status === 1 || grant.status === 2) && (
+            <button
+              onClick={() => onCancelOrReclaim(grant.grant_id)}
+              disabled={isActionLoading}
+              className="text-slate-500 hover:text-red-400 font-mono transition"
+              title="DAO Escrow Reclaim (if deadline expires)"
+            >
+              Reclaim
             </button>
           )}
 
